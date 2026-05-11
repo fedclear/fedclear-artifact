@@ -359,6 +359,3 @@ df = pd.read_csv("results_anvil_mnist_20k_12r/contract_anvil_receipts.csv")
 print(df.groupby("event")["gas_used"].agg(["count", "mean", "sum"]))
 ```
 
-## License
-
-Add a license before public release if required by the venue or artifact policy.
