@@ -1,0 +1,8 @@
+event,count,mean,sum
+publishUpdate,120,170289.1,20434692
+reserveTicket,120,130942.67,15713120
+finalizeRound,12,264961.0,3179532
+Deploy,1,1391031.0,1391031
+fundRound,12,48356.0,580272
+claim,10,30943.0,309430
+createListing,1,210815.0,210815
