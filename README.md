@@ -1,44 +1,56 @@
-# Contract-backed BC-FL MVP
+# FedClear: Contract-Backed Clearing Layer for Auditable Federated Learning
 
-This repository contains a reproducible research artifact for a blockchain-coordinated federated learning (BC-FL) control plane. It accompanies an anonymous double-blind submission and is intended to validate the paper's implementation claims, not to serve as a production public-chain deployment.
+FedClear is a reproducible research prototype for blockchain-coordinated federated learning. It implements a contract-backed control plane where clients reserve update tickets, publish update identifiers, and claim entitlements, while model tensors remain off chain in content-addressed storage.
 
-The artifact has two execution backends:
+The goal of this repository is to validate the implementation claims of the accompanying paper:
 
-1. **Mock backend**: a fast Python implementation of the same coordinator interface, useful for quick tests and failure sweeps.
-2. **Anvil/EVM backend**: a Solidity `BCFLCoordinator` contract deployed on a local Ethereum-compatible Anvil chain. This backend produces real local EVM transaction receipts and gas measurements.
+- a Solidity coordinator contract for FL round coordination,
+- a local Ethereum-compatible execution backend using Anvil,
+- a fast Python mock backend for stress sweeps,
+- real FL workloads on handwritten-digit datasets,
+- SHA-256 content-addressed off-chain artifact storage,
+- transaction/gas measurements and paper-ready CSV outputs.
 
-The FL workload runs on real datasets. The default is the built-in scikit-learn handwritten digits dataset. The stronger paper experiment uses an OpenML MNIST subset.
+This is a research artifact, not a production public-chain deployment.
 
-## What this artifact demonstrates
+## Overview
 
-The implementation validates the control-plane claims of the paper:
+FedClear separates FL coordination metadata from model artifacts.
 
-- The coordinator stores only metadata, ticket state, reward/funding state, entitlements, and content identifiers.
-- Model tensors and client updates are stored off chain in a SHA-256 content-addressed artifact store.
-- Clients reserve tickets, train locally, publish update identifiers, and claim entitlements.
-- The lister fetches retrievable artifacts, filters invalid updates, aggregates valid updates with the same FedAvg-style rule as Plain FL, writes the next global artifact, and finalizes the round on chain.
-- Plain FL and contract-backed BC-FL are evaluated on the same data split and training parameters.
-- The Anvil backend reports transaction count and gas used by operation.
+The coordinator stores:
 
-## Important scope statement
+- model listings,
+- round funding state,
+- ticket reservations,
+- update identifiers,
+- global model identifiers,
+- refund and claim state.
 
-This repository is a **contract-backed research MVP**. It is not an audited production system, public mainnet deployment, complete staking/slashing protocol, privacy-preserving FL stack, or wide-area storage system.
+The artifact store holds:
 
-Production features left for future work include secure aggregation, differential privacy, real validator staking/slashing, wide-area networking, persistent replicated storage, monitoring, and contract/security audits.
+- initial models,
+- client update tensors,
+- finalized global models.
 
-## IPFS and storage note
+Artifacts are addressed locally as:
 
-This implementation does **not** run IPFS. It uses a local SHA-256 content-addressed artifact store. This is intentional: the protocol requires an off-chain content-addressed storage layer, not a specific IPFS deployment. IPFS, S3/MinIO with hashes, Filecoin-backed storage, or another replicated backend can be used in a production deployment if it provides:
+```text
+sha256:<digest>
+```
 
-- fetch-by-identifier,
-- integrity verification,
-- object-size limits,
-- availability during the aggregation window,
-- and operational monitoring/pinning/retention policies.
+where `<digest>` is the SHA-256 hash of the serialized artifact bytes. On retrieval, the store recomputes the digest and rejects mismatches.
 
-Paper-safe wording:
+## Backends
 
-> The prototype uses a local SHA-256 content-addressed artifact store. IPFS is a compatible deployment option, but the reported implementation does not depend on or run IPFS.
+The artifact supports two execution backends.
+
+### Mock backend
+
+The mock backend executes the same coordinator workflow in Python. It is useful for fast tests, debugging, and failure sweeps.
+
+### Anvil/EVM backend
+
+The Anvil backend deploys the Solidity `BCFLCoordinator` contract on a local Ethereum-compatible Anvil chain. It produces real local EVM transaction receipts and gas measurements.
 
 ## Repository layout
 
@@ -46,49 +58,63 @@ Paper-safe wording:
 contracts/BCFLCoordinator.sol      Solidity coordinator contract
 bcfl_contract/store.py             SHA-256 content-addressed artifact store
 bcfl_contract/fl.py                Dataset loading, non-IID split, local training, aggregation
-bcfl_contract/mock_chain.py        Fast Python coordinator backend
-bcfl_contract/evm_chain.py         Anvil/EVM Solidity deployment backend
+bcfl_contract/mock_chain.py        Python coordinator backend
+bcfl_contract/evm_chain.py         Anvil/EVM deployment backend
 bcfl_contract/experiment.py        End-to-end experiment runner
-scripts/run_contract_mvp.py        Main Plain FL vs BC-FL experiment
-scripts/run_failure_sweep.py       Mock-backend stress sweeps
-scripts/plot_results.py            Paper-ready plots and gas summaries
+scripts/run_contract_mvp.py        Main Plain FL vs FedClear experiment
+scripts/run_failure_sweep.py       Failure/stress sweep runner
+scripts/plot_results.py            Plot and gas-summary generator
 requirements.txt                   Core Python dependencies
-requirements-evm.txt               EVM/web3/solidity dependencies
+requirements-evm.txt               EVM/web3/Solidity dependencies
 ```
 
-## Environment
+## Requirements
 
-Tested on Ubuntu 24.04 with Python 3.12 and Foundry/Anvil. Other recent Linux distributions should work.
+Tested with:
 
-Create a Python environment:
+```text
+Ubuntu 24.04
+Python 3.12
+Foundry/Anvil
+Solidity 0.8.24
+```
+
+Install Python dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
-For Anvil/EVM runs, also install:
+For Anvil/EVM experiments, also install:
 
 ```bash
 python3 -m pip install -r requirements-evm.txt
 ```
 
-Install Foundry/Anvil if it is not already installed:
+Install Foundry/Anvil:
 
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
 source ~/.bashrc
 foundryup
+
 anvil --version
 ```
 
-## Quick mock smoke test
+## Quick mock run
+
+Run a small mock-backend smoke test:
 
 ```bash
 source .venv/bin/activate
-python3 scripts/run_contract_mvp.py --quick --out results_mock_quick
+
+python3 scripts/run_contract_mvp.py \
+  --quick \
+  --out results_mock_quick
 ```
 
 Expected outputs:
@@ -101,51 +127,53 @@ results_mock_quick/contract_mvp_summary.csv
 results_mock_quick/paper_ready_notes.md
 ```
 
-## Mock failure sweeps
-
-The mock backend is useful for stress tests because it is fast and deterministic.
-
-```bash
-source .venv/bin/activate
-python3 scripts/run_failure_sweep.py --out results_mock_sweep
-python3 scripts/plot_results.py results_mock_sweep
-```
-
-This produces sweep summaries and plots under `results_mock_sweep/plots/`.
-
 ## Anvil/EVM smoke test
 
-Start Anvil in one terminal. Use at least 20 accounts so there are enough unlocked accounts for one lister plus 10 clients.
+Start Anvil in one terminal:
 
 ```bash
 anvil --host 127.0.0.1 --port 8545 --accounts 20 --silent
 ```
 
-In a second terminal:
+In another terminal:
 
 ```bash
-cd <repo-root>
 source .venv/bin/activate
+
 python3 -m pip install -r requirements.txt -r requirements-evm.txt
-python3 scripts/run_contract_mvp.py --backend anvil --quick --out results_anvil_quick
+
+python3 scripts/run_contract_mvp.py \
+  --backend anvil \
+  --quick \
+  --out results_anvil_quick
 ```
 
 The first Anvil run may download Solidity compiler 0.8.24 through `py-solc-x`.
 
-## Main MNIST experiment used in the paper
+## Main MNIST experiment
 
-The main paper result uses an OpenML MNIST subset with 20,000 examples, 10 clients, a non-IID Dirichlet split, 12 FL rounds, and a local Anvil/EVM backend.
+This is the main contract-backed experiment.
 
-Terminal 1:
+It runs:
+
+- MNIST from OpenML,
+- 20,000 samples,
+- 10 clients,
+- non-IID Dirichlet split,
+- 12 FL rounds,
+- local Anvil/EVM backend.
+
+Start Anvil:
 
 ```bash
 anvil --host 127.0.0.1 --port 8545 --accounts 20 --silent
 ```
 
-Terminal 2:
+Run the experiment:
 
 ```bash
 source .venv/bin/activate
+
 python3 scripts/run_contract_mvp.py \
   --backend anvil \
   --dataset mnist \
@@ -160,34 +188,37 @@ Generate plots and gas summaries:
 python3 scripts/plot_results.py results_anvil_mnist_20k_12r
 ```
 
-Zip only the lightweight paper-relevant files, not the model artifacts:
+Useful outputs:
 
-```bash
-zip -r mnist_20k_paper_results.zip \
-  results_anvil_mnist_20k_12r/*.csv \
-  results_anvil_mnist_20k_12r/*.md \
-  results_anvil_mnist_20k_12r/plots
+```text
+results_anvil_mnist_20k_12r/contract_mvp_summary.csv
+results_anvil_mnist_20k_12r/contract_anvil_receipts.csv
+results_anvil_mnist_20k_12r/plain_fl_rounds.csv
+results_anvil_mnist_20k_12r/bcfl_anvil_rounds.csv
+results_anvil_mnist_20k_12r/paper_ready_notes.md
+results_anvil_mnist_20k_12r/plots/
 ```
 
-## Expected main-result numbers
+## Representative MNIST result
 
-With the configuration above, one representative run produced:
+One representative run with the command above produced:
 
 | Metric | Value |
 |---|---:|
 | Backend | Anvil local EVM |
-| Dataset | MNIST, 20,000 samples |
+| Dataset | MNIST |
+| Samples | 20,000 |
 | Clients | 10 |
 | Rounds | 12 |
 | Plain FL test accuracy | 0.8930 |
-| Contract-backed BC-FL test accuracy | 0.8930 |
+| FedClear test accuracy | 0.8930 |
 | Accuracy gap vs Plain FL | 0.0000 |
-| On-chain transactions, including deployment | 276 |
+| Transactions, including deployment | 276 |
 | Total gas used | 41,818,892 |
 | Artifact puts / gets | 133 / 120 |
 | Storage get failures | 0 |
 
-Gas breakdown from the representative run:
+Gas breakdown:
 
 | Operation | Count | Mean gas | Total gas |
 |---|---:|---:|---:|
@@ -199,53 +230,86 @@ Gas breakdown from the representative run:
 | finalizeRound | 12 | 264,961 | 3,179,532 |
 | claim | 10 | 30,943 | 309,430 |
 
-The exact transaction hashes and block numbers may differ between runs. Accuracy should be reproducible for the same software versions, seed, dataset subset, and command-line parameters.
+Transaction hashes and block numbers may differ across runs. Accuracy should be reproducible under the same software versions, seed, dataset subset, and command-line parameters.
 
-## Optional full MNIST run
+## Full MNIST mock run
 
-Use `--max-samples 0` for the full OpenML MNIST dataset. This is slower and produces larger artifacts.
+The full OpenML MNIST dataset can be run with the mock backend:
 
 ```bash
 python3 scripts/run_contract_mvp.py \
-  --backend anvil \
+  --backend mock \
   --dataset mnist \
   --max-samples 0 \
   --rounds 12 \
-  --out results_anvil_mnist_full_12r
+  --out results_mock_mnist_full_12r
 ```
 
-When `--max-samples` is not zero, describe the experiment as an MNIST subset.
+Use `--max-samples 0` for the full dataset. When `--max-samples` is nonzero, the run uses a subset.
+
+## Failure sweeps
+
+Run the MNIST 20k failure sweep:
+
+```bash
+python3 scripts/run_failure_sweep.py \
+  --dataset mnist \
+  --max-samples 20000 \
+  --out results_mock_mnist_20k_failure_sweep
+```
+
+This evaluates controlled stress scenarios such as:
+
+- artifact retrieval failures,
+- client dropout,
+- invalid updates.
+
+Inspect the output:
+
+```bash
+cat results_mock_mnist_20k_failure_sweep/*.csv
+```
 
 ## Fashion-MNIST
 
-Fashion-MNIST is supported if OpenML is reachable:
+Fashion-MNIST is supported when OpenML is reachable:
 
 ```bash
 python3 scripts/run_contract_mvp.py \
   --backend mock \
   --dataset fashion_mnist \
   --max-samples 12000 \
-  --quick \
-  --out results_fashion_quick
+  --rounds 12 \
+  --out results_mock_fashion_12k_12r
 ```
 
-## Reproducibility checklist for anonymous review
+## Packaging lightweight results
 
-Before uploading an anonymous repository:
+To zip the paper-relevant outputs without large model artifacts:
 
-- Do not use a GitHub account, commit metadata, path, README text, or issue links that identify the authors.
-- Do not include local absolute paths containing author names.
-- Do not include private keys other than public Anvil development keys shown by Anvil itself.
-- Include this README, the contract, scripts, requirements, and a small set of paper-relevant CSVs.
-- Avoid uploading the full `artifact_store/` unless the reviewer specifically needs model artifacts. The CSVs and scripts are enough to reproduce them.
-- State clearly that the implementation uses local content-addressed storage, not IPFS.
-- During double-blind review, refer to the artifact as an anonymous artifact repository. Reveal author-identifying metadata only after review.
+```bash
+zip -r mnist_20k_paper_results.zip \
+  results_anvil_mnist_20k_12r/*.csv \
+  results_anvil_mnist_20k_12r/*.md \
+  results_anvil_mnist_20k_12r/plots
+```
 
-## Paper-safe implementation paragraph
+The generated `artifact_store/` directories can be reproduced by rerunning the experiments and are usually not needed for lightweight artifact review.
 
-> We implemented a contract-backed BC-FL prototype with two backends. The mock backend executes the coordinator interface in Python and is used for fast failure sweeps. The contract backend deploys a Solidity `BCFLCoordinator` contract on a local Anvil Ethereum-compatible chain and records real transaction receipts and gas usage. In both backends, model tensors remain off chain in a SHA-256 content-addressed artifact store, while the coordinator stores listings, tickets, update identifiers, global identifiers, reward pools, refunds, and claims. On a non-IID 20,000-sample MNIST split with 10 clients and 12 rounds, the contract-backed run matched the Plain FL baseline at 89.30% test accuracy, issued 276 transactions, and consumed 41.8M gas.
+## Storage note
 
-## Troubleshooting
+This implementation does not run IPFS. It uses a local SHA-256 content-addressed artifact store.
+
+The protocol only requires an off-chain artifact layer that supports:
+
+- fetch-by-identifier,
+- integrity verification,
+- object-size limits,
+- availability during the aggregation window.
+
+IPFS, S3/MinIO with hashes, Filecoin-backed storage, or another replicated backend could be used in a production deployment, but the reported experiments use the local SHA-256 backend.
+
+## Common issues
 
 ### `anvil: command not found`
 
@@ -259,24 +323,24 @@ foundryup
 
 ### `Need at least 11 unlocked Anvil accounts`
 
-Restart Anvil with more accounts:
+Start Anvil with more accounts:
 
 ```bash
 anvil --host 127.0.0.1 --port 8545 --accounts 20 --silent
 ```
 
-### `Stack too deep` during Solidity compilation
+### Solidity `Stack too deep`
 
-The EVM backend compiles with optimizer and `viaIR: true`. If you still see this error, check `bcfl_contract/evm_chain.py` and make sure the compiler settings include:
+The EVM backend compiles with optimizer and `viaIR: true`. The expected compiler settings are in `bcfl_contract/evm_chain.py`:
 
 ```python
 "optimizer": {"enabled": True, "runs": 200},
 "viaIR": True,
 ```
 
-### `ModuleNotFoundError: No module named 'numpy'`
+### `ModuleNotFoundError`
 
-You are probably in a new folder without an activated virtual environment:
+Create and activate the virtual environment:
 
 ```bash
 python3 -m venv .venv
@@ -284,16 +348,17 @@ source .venv/bin/activate
 python3 -m pip install -r requirements.txt -r requirements-evm.txt
 ```
 
-### `KeyError: 'op'` when summarizing gas
+### Gas summary column name
 
-The receipts CSV uses column name `event`, not `op`:
+The receipts CSV uses `event`, not `op`:
 
 ```python
 import pandas as pd
+
 df = pd.read_csv("results_anvil_mnist_20k_12r/contract_anvil_receipts.csv")
 print(df.groupby("event")["gas_used"].agg(["count", "mean", "sum"]))
 ```
 
-## Citation and artifact policy
+## License
 
-If this repository is linked during double-blind review, use an anonymous repository or artifact service. Do not link a personal GitHub account if the venue requires double-blind review.
+Add a license before public release if required by the venue or artifact policy.
